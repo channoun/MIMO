@@ -38,13 +38,15 @@ def dsm_loss(
     eps_real = torch.randn_like(H0.real)
     eps_imag = torch.randn_like(H0.imag)
 
-    scale = sigma_j[:, None, None, None]
+    scale = sigma_j[:, None, None]
+    scale_4d = sigma_j[:, None, None, None]
+
     H_j_real = H0.real + scale * eps_real
     H_j_imag = H0.imag + scale * eps_imag
     H_j = torch.stack([H_j_real, H_j_imag], dim=1)  # (B, 2, NrK, NtK)
 
     # Target score: -eps / sigma_j
-    score_target = torch.stack([-eps_real, -eps_imag], dim=1) / scale
+    score_target = torch.stack([-eps_real, -eps_imag], dim=1) / scale_4d
 
     # Predicted score
     score_pred = net(H_j, sigma_j)

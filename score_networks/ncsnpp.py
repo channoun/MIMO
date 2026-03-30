@@ -323,7 +323,7 @@ class ChannelScoreNet(nn.Module):
             score: (B, 2, NrK, NtK) score.
         """
         B = H.shape[0]
-        h_flat = H.view(B, -1)
+        h_flat = H.reshape(B, -1)
         t_emb = self.time_emb(sigma)
         inp = torch.cat([h_flat, t_emb], dim=-1)
         out = self.net(inp)
