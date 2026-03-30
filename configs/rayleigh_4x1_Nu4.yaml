@@ -1,0 +1,58 @@
+# Rayleigh fading: Nr=4, Nt=1, Nu=4 (Fig. 3/4 config)
+# Multi-user setting
+
+# Channel
+channel: rayleigh
+Nr: 4
+Nt: 1
+K: 192
+T: 24
+Nu: 4
+
+# CBR = Nt*K*T / n = 1*192*24 / (256*256*3) = 0.0625
+cbr: 0.0625
+
+# SNR range (dB)
+snr_db_range: [-5, 0, 5, 10, 15, 20]
+
+# Encoder
+embed_dim: 96
+depths: [2, 2, 6, 2]
+num_heads: [3, 6, 12, 24]
+dec_depths: [2, 6, 2, 2]
+dec_num_heads: [24, 12, 6, 3]
+patch_size: 4
+power: 1.0
+
+# Training
+data_root: data/ffhq256
+epochs: 100
+batch_size: 16
+lr: 1.0e-4
+
+# Score networks
+score_base_channels: 128
+score_ch_mults: [1, 2, 2, 2]
+score_num_res_blocks: 2
+score_attn_resolutions: [16]
+score_dropout: 0.1
+score_lr: 2.0e-4
+score_epochs: 200
+score_batch_size: 8
+
+# PVD
+J: 30
+J_in: 20
+L: 1
+sigma_H_1: 0.01
+sigma_H_J: 100.0
+sigma_D_1: 0.01
+sigma_D_J: 100.0
+zeta_H: 1.0
+zeta_D: 1.0
+use_second_order: true
+
+# Evaluation
+n_trials: 300
+encoder_ckpt_dir: encoder/checkpoints
+score_ckpt_dir: score_networks/checkpoints
