@@ -25,15 +25,15 @@ patch_size: 4
 power: 1.0
 
 # Training
-data_root: data/ffhq256
+data_root: data/mnist256/all
 epochs: 100
 batch_size: 16
 lr: 1.0e-4
 
 # Score networks
-score_base_channels: 128
-score_ch_mults: [1, 2, 2, 2]
-score_num_res_blocks: 2
+score_base_channels: 32
+score_ch_mults: [1, 2, 2]
+score_num_res_blocks: 1
 score_attn_resolutions: [16]
 score_dropout: 0.1
 score_lr: 2.0e-4
