@@ -90,6 +90,7 @@ def likelihood_score(
 
     H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1)
     score_H = S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK)
+    score_H = torch.clamp(score_H, -10.0, 10.0)  # Clip scores to prevent extreme values
     H_hat_real = H_j_c.real + sigma_H_j ** 2 * score_H[:, 0]
     H_hat_imag = H_j_c.imag + sigma_H_j ** 2 * score_H[:, 1]
     H_hat = torch.complex(H_hat_real, H_hat_imag)  # (B, NrK, NtK)
