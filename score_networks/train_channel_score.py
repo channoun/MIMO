@@ -23,48 +23,34 @@ from .ncsnpp import ChannelScoreNet, ChannelScoreNet2ndOrder, get_sigmas
 from channels.rayleigh import generate_rayleigh_channel, noise_schedule_exponential
 
 
-def dsm_loss(
-    net: nn.Module,
-    H0: torch.Tensor,
-    sigmas: torch.Tensor,
-    device: torch.device,
-) -> torch.Tensor:
-    """Denoising score matching loss for channel prior."""
+def dsm_loss(net, H0, sigmas, device):
     B = H0.shape[0]
     j = torch.randint(1, len(sigmas), (B,), device=device)
-    sigma_j = sigmas[j]  # (B,)
+    sigma_j = sigmas[j]
 
-    # Noisy channel: H_j = H0 + sigma_j * eps
     eps_real = torch.randn_like(H0.real)
     eps_imag = torch.randn_like(H0.imag)
 
     scale = sigma_j[:, None, None]
     scale_4d = sigma_j[:, None, None, None]
 
+    # Noisy input
     H_j_real = H0.real + scale * eps_real
     H_j_imag = H0.imag + scale * eps_imag
-    H_j = torch.stack([H_j_real, H_j_imag], dim=1)  # (B, 2, NrK, NtK)
+    H_j = torch.stack([H_j_real, H_j_imag], dim=1)
 
-        # Normalize input
-    H_j_normalized = H_j / scale_4d
+    # ✅ NORMALIZE input
+    H_j_norm = H_j / scale_4d
 
-    # New target
-    score_target =  torch.stack([-eps_real, -eps_imag], dim=1)
+    # ✅ SIMPLE target
+    score_target = torch.stack([-eps_real, -eps_imag], dim=1)
 
     # Forward
-    score_pred = net(H_j_normalized, sigma_j)
+    score_pred = net(H_j_norm, sigma_j)
 
-    # Loss
+    # ✅ NO sigma weighting
     loss = ((score_pred - score_target) ** 2).mean()
 
-    # Target score: -eps / sigma_j
-    # score_target = torch.stack([-eps_real, -eps_imag], dim=1) / scale_4d
-
-    # # Predicted score
-    # score_pred = net(H_j, sigma_j)
-
-    # # Weighted MSE (sigma^2 weighting)
-    # loss = (sigma_j[:, None, None, None] ** 2 * (score_pred - score_target) ** 2).mean()
     return loss
 
 
