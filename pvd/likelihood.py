@@ -100,6 +100,11 @@ def likelihood_score(
     # print("score D: ", score_D)
     # print("score H: ", score_H)
 
+    print("score_H stats:",
+      score_H.mean().item(),
+      score_H.std().item(),
+      score_H.abs().max().item())
+
     # Encode D_hat → X_hat
     if use_checkpoint:
         X_hat_raw = checkpoint(f_gamma, D_hat, use_reentrant=False)
