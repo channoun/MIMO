@@ -178,6 +178,7 @@ def likelihood_score_simple(
     H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1)
     with torch.no_grad():
         score_H = S_theta_H(H_in, sigma_H_vec)
+        score_H = torch.clamp(score_H, -10.0, 10.0)  # Clip scores to prevent extreme values
         print("score h: ", score_H)
     H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0].detach()
     H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1].detach()
