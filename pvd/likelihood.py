@@ -40,7 +40,7 @@ def _residual_norm_sq(
     residual = Y - HX              # (B, NrK, T)
     res_sq = (residual.real ** 2 + residual.imag ** 2)  # (B, NrK, T)
     # Sum over spatial dims, divide by effective variance per batch element
-    loss = (res_sq.sum(dim=(1, 2)) / effective_var.clamp(min=1e-8)).sum()
+    loss = ((res_sq.sum(dim=(1, 2)) / effective_var.clamp(min=1e-8)).sum()).mean()
     return loss
 
 
@@ -102,10 +102,10 @@ def likelihood_score(
     # print("score D: ", score_D)
     # print("score H: ", score_H)
 
-    print("score_H stats:",
-      score_H.mean().item(),
-      score_H.std().item(),
-      score_H.abs().max().item())
+    # print("score_H stats:",
+    #   score_H.mean().item(),
+    #   score_H.std().item(),
+    #   score_H.abs().max().item())
 
     # Encode D_hat → X_hat
     if use_checkpoint:
@@ -119,12 +119,12 @@ def likelihood_score(
         X_hat = X_hat_raw  # (B, NtK, T)
 
     # Residual loss
-    print("effective_var: ", effective_var)
-    print("H_hat norm:", H_hat.abs().mean().item(), H_hat.abs().max().item())
-    print("X_hat norm:", X_hat.abs().mean().item(), X_hat.abs().max().item())
-    print("Y norm:", Y.abs().mean().item(), Y.abs().max().item())
+    # print("effective_var: ", effective_var)
+    # print("H_hat norm:", H_hat.abs().mean().item(), H_hat.abs().max().item())
+    # print("X_hat norm:", X_hat.abs().mean().item(), X_hat.abs().max().item())
+    # print("Y norm:", Y.abs().mean().item(), Y.abs().max().item())
     loss = _residual_norm_sq(H_hat, X_hat, Y, effective_var)
-    print("loss: ", loss)
+    # print("loss: ", loss)
 
     # Compute gradients
     grads = torch.autograd.grad(loss, [H_j_c, D_j_c], allow_unused=True)
@@ -181,23 +181,23 @@ def likelihood_score_simple(
     with torch.no_grad():
         score_H = S_theta_H(H_in, sigma_H_vec)
         score_H = torch.clamp(score_H, -10.0, 10.0)  # Clip scores to prevent extreme values
-        print("score h: ", score_H)
+        # print("score h: ", score_H)
     H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0].detach()
     H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1].detach()
     H_hat_grad = torch.complex(H_hat_real, H_hat_imag)
 
     with torch.no_grad():
         score_D = S_theta_D(D_j_c, sigma_D_vec)
-        print("score d: ", score_D)
+        # print("score d: ", score_D)
     D_hat_grad = D_j_c + sigma_D_j * score_D.detach()
 
     X_hat_grad = f_gamma(D_hat_grad)
     if X_hat_grad.dim() == 4:
         X_hat_grad = X_hat_grad[:, 0]
 
-    print("effective_var: ", effective_var)
+    # print("effective_var: ", effective_var)
     loss = _residual_norm_sq(H_hat_grad, X_hat_grad, Y, effective_var)
-    print("loss:",  loss)
+    # print("loss:",  loss)
     grads = torch.autograd.grad(loss, [H_j_c, D_j_c], allow_unused=True)
     gH = grads[0] if grads[0] is not None else torch.zeros_like(H_j)
     gD = grads[1] if grads[1] is not None else torch.zeros_like(D_j)
