@@ -94,6 +94,7 @@ def likelihood_score(
     H_hat_real = H_j_c.real + sigma_H_j ** 2 * score_H[:, 0]
     H_hat_imag = H_j_c.imag + sigma_H_j ** 2 * score_H[:, 1]
     H_hat = torch.complex(H_hat_real, H_hat_imag)  # (B, NrK, NtK)
+    H_hat = H_hat / (H_hat.norm(dim=-1, keepdim=True) + 1e-8)
 
     score_D = S_theta_D(D_j_c, sigma_D_vec)  # (B, 3, H, W)
     D_hat = D_j_c + sigma_D_j ** 2 * score_D  # (B, 3, H, W)
