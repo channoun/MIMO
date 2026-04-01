@@ -97,6 +97,9 @@ def likelihood_score(
     score_D = S_theta_D(D_j_c, sigma_D_vec)  # (B, 3, H, W)
     D_hat = D_j_c + sigma_D_j ** 2 * score_D  # (B, 3, H, W)
 
+    print("score D: ", score_D)
+    print("score H: ", score_H)
+
     # Encode D_hat → X_hat
     if use_checkpoint:
         X_hat_raw = checkpoint(f_gamma, D_hat, use_reentrant=False)
@@ -109,7 +112,9 @@ def likelihood_score(
         X_hat = X_hat_raw  # (B, NtK, T)
 
     # Residual loss
+    print("effective_var: ", effective_var)
     loss = _residual_norm_sq(H_hat, X_hat, Y, effective_var)
+    print("loss: ", loss)
 
     # Compute gradients
     grads = torch.autograd.grad(loss, [H_j_c, D_j_c], allow_unused=True)
