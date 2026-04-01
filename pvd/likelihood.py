@@ -97,8 +97,8 @@ def likelihood_score(
     score_D = S_theta_D(D_j_c, sigma_D_vec)  # (B, 3, H, W)
     D_hat = D_j_c + sigma_D_j ** 2 * score_D  # (B, 3, H, W)
 
-    print("score D: ", score_D)
-    print("score H: ", score_H)
+    # print("score D: ", score_D)
+    # print("score H: ", score_H)
 
     # Encode D_hat → X_hat
     if use_checkpoint:
@@ -113,9 +113,9 @@ def likelihood_score(
 
     # Residual loss
     print("effective_var: ", effective_var)
-    print("H_hat: ", H_hat)
-    print("X_hat: ", X_hat)
-    print("Y: ", Y)
+    print("H_hat norm:", H_hat.abs().mean().item(), H_hat.abs().max().item())
+    print("X_hat norm:", X_hat.abs().mean().item(), X_hat.abs().max().item())
+    print("Y norm:", Y.abs().mean().item(), Y.abs().max().item())
     loss = _residual_norm_sq(H_hat, X_hat, Y, effective_var)
     print("loss: ", loss)
 
