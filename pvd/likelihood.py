@@ -113,6 +113,9 @@ def likelihood_score(
 
     # Residual loss
     print("effective_var: ", effective_var)
+    print("H_hat: ", H_hat)
+    print("X_hat: ", X_hat)
+    print("Y: ", Y)
     loss = _residual_norm_sq(H_hat, X_hat, Y, effective_var)
     print("loss: ", loss)
 
