@@ -200,6 +200,10 @@ class PVDSolver:
                         use_checkpoint=self.use_checkpoint,
                     )
 
+                    if torch.isnan(grad_H_lik).any() or torch.isnan(grad_D_lik).any():
+                        print(f"NaN detected in likelihood gradients at step j={j}")
+                        break
+
                 # Prior scores (no grad needed)
                 with torch.no_grad():
                     B_size = H_j.shape[0]
@@ -235,7 +239,7 @@ class PVDSolver:
                 )
                 D_j = D_j + eps_D * (score_D_prior + grad_D_lik) + noise_D
                 if torch.isnan(H_j).any() or torch.isnan(D_j).any():
-                    print(f"NaN detected at step j={j}")
+                    print(f"NaN detected at the end. step j={j}")
                     break
 
         # Final Tweedie estimates
