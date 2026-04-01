@@ -48,8 +48,8 @@ sigma_H_1: 0.01
 sigma_H_J: 10.0
 sigma_D_1: 0.01
 sigma_D_J: 10.0
-zeta_H: 1.0
-zeta_D: 1.0
+zeta_H: 0.05
+zeta_D: 0.05
 use_second_order: true
 
 # Evaluation
