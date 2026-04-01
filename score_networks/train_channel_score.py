@@ -45,14 +45,26 @@ def dsm_loss(
     H_j_imag = H0.imag + scale * eps_imag
     H_j = torch.stack([H_j_real, H_j_imag], dim=1)  # (B, 2, NrK, NtK)
 
+        # Normalize input
+    H_j_normalized = H_j / scale_4d
+
+    # New target
+    score_target =  torch.stack([-eps_real, -eps_imag], dim=1)
+
+    # Forward
+    score_pred = net(H_j_normalized, sigma_j)
+
+    # Loss
+    loss = ((score_pred - score_target) ** 2).mean()
+
     # Target score: -eps / sigma_j
-    score_target = torch.stack([-eps_real, -eps_imag], dim=1) / scale_4d
+    # score_target = torch.stack([-eps_real, -eps_imag], dim=1) / scale_4d
 
-    # Predicted score
-    score_pred = net(H_j, sigma_j)
+    # # Predicted score
+    # score_pred = net(H_j, sigma_j)
 
-    # Weighted MSE (sigma^2 weighting)
-    loss = (sigma_j[:, None, None, None] ** 2 * (score_pred - score_target) ** 2).mean()
+    # # Weighted MSE (sigma^2 weighting)
+    # loss = (sigma_j[:, None, None, None] ** 2 * (score_pred - score_target) ** 2).mean()
     return loss
 
 
@@ -63,7 +75,7 @@ def train(cfg: dict):
     K = cfg.get("K", 192)
     Nu = cfg.get("Nu", 1)
     J = cfg.get("J", 30)
-    sigma_1 = cfg.get("sigma_D_1", 0.01)
+    sigma_1 = cfg.get("sigma_H_1", 0.01)
     sigma_J = cfg.get("sigma_H_J", 100.0)
 
     sigmas = noise_schedule_exponential(sigma_1, sigma_J, J, device)
