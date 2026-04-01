@@ -165,19 +165,23 @@ def likelihood_score_simple(
     H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1)
     with torch.no_grad():
         score_H = S_theta_H(H_in, sigma_H_vec)
+        print("score h: ", score_H)
     H_hat_real = H_j_c.real + sigma_H_j ** 2 * score_H[:, 0].detach()
     H_hat_imag = H_j_c.imag + sigma_H_j ** 2 * score_H[:, 1].detach()
     H_hat_grad = torch.complex(H_hat_real, H_hat_imag)
 
     with torch.no_grad():
         score_D = S_theta_D(D_j_c, sigma_D_vec)
+        print("score d: ", score_D)
     D_hat_grad = D_j_c + sigma_D_j ** 2 * score_D.detach()
 
     X_hat_grad = f_gamma(D_hat_grad)
     if X_hat_grad.dim() == 4:
         X_hat_grad = X_hat_grad[:, 0]
 
+    print("effective_var: ", effective_var)
     loss = _residual_norm_sq(H_hat_grad, X_hat_grad, Y, effective_var)
+    print("loss:",  loss)
     grads = torch.autograd.grad(loss, [H_j_c, D_j_c], allow_unused=True)
     gH = grads[0] if grads[0] is not None else torch.zeros_like(H_j)
     gD = grads[1] if grads[1] is not None else torch.zeros_like(D_j)
