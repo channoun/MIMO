@@ -234,6 +234,9 @@ class PVDSolver:
                     H_j.imag + eps_H * total_score_H_imag + noise_H.imag,
                 )
                 D_j = D_j + eps_D * (score_D_prior + grad_D_lik) + noise_D
+                if torch.isnan(H_j).any() or torch.isnan(D_j).any():
+                    print(f"NaN detected at step j={j}")
+                    break
 
         # Final Tweedie estimates
         with torch.no_grad():

@@ -11,6 +11,10 @@ Usage:
 import argparse
 import os
 import math
+from unittest import loader
+from pathlib import Path
+from torchvision import transforms
+from matplotlib import transforms
 import yaml
 import json
 import torch
@@ -195,12 +199,49 @@ def evaluate_at_snr(cfg: dict, snr_db: float, args, device: torch.device) -> Dic
     n_done = 0
     pbar = tqdm(total=n_trials, desc=f"SNR={snr_db}dB")
 
+    transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5),
+                         (0.5, 0.5, 0.5))
+    ])
+
+    from PIL import Image
+    from torch.utils.data import DataLoader, Dataset
+
+    class FlatFolderDataset(Dataset):
+        def __init__(self, root, transform=None):
+            self.paths = list(Path(root).glob("*.png"))
+            self.transform = transform
+
+        def __len__(self):
+            return len(self.paths)
+
+        def __getitem__(self, idx):
+            img = Image.open(self.paths[idx]).convert("RGB")
+            if self.transform:
+                img = self.transform(img)
+            return img, 0
+        
+
+    dataset = FlatFolderDataset("data/mnist256/all", transform=transform)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+
+    data_iter = iter(loader)
+
     while n_done < n_trials:
         bs = min(batch_size, n_trials - n_done)
 
         # Generate channel and random images (random if no dataset)
         H0 = get_channel(cfg, bs, device)
-        D0 = torch.rand(bs, 3, 256, 256, device=device) * 2 - 1  # placeholder
+        # D0 = torch.rand(bs, 3, 256, 256, device=device) * 2 - 1  # placeholder
+
+        try:
+            D0, _ = next(data_iter)
+        except StopIteration:
+            data_iter = iter(loader)
+            D0, _ = next(data_iter)
+
+        D0 = D0.to(device)
 
         # Apply channel for PVD
         X = enc(D0)
