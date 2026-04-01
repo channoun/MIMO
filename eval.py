@@ -14,7 +14,6 @@ import math
 from unittest import loader
 from pathlib import Path
 from torchvision import transforms
-from matplotlib import transforms
 import yaml
 import json
 import torch
