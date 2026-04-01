@@ -179,14 +179,14 @@ def likelihood_score_simple(
     with torch.no_grad():
         score_H = S_theta_H(H_in, sigma_H_vec)
         print("score h: ", score_H)
-    H_hat_real = H_j_c.real + sigma_H_j ** 2 * score_H[:, 0].detach()
-    H_hat_imag = H_j_c.imag + sigma_H_j ** 2 * score_H[:, 1].detach()
+    H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0].detach()
+    H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1].detach()
     H_hat_grad = torch.complex(H_hat_real, H_hat_imag)
 
     with torch.no_grad():
         score_D = S_theta_D(D_j_c, sigma_D_vec)
         print("score d: ", score_D)
-    D_hat_grad = D_j_c + sigma_D_j ** 2 * score_D.detach()
+    D_hat_grad = D_j_c + sigma_D_j * score_D.detach()
 
     X_hat_grad = f_gamma(D_hat_grad)
     if X_hat_grad.dim() == 4:
