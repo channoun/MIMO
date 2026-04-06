@@ -134,10 +134,17 @@ class PVDSolver:
         Falls back to sigma_n^2 if second-order networks not available.
         """
         B = H_j.shape[0]
-        base_var = torch.full((B,), self.sigma_n ** 2, device=self.device)
 
         if not self.use_second_order or self.s_theta_H is None or self.s_theta_D is None:
-            return base_var
+            # Gaussian-prior approximation of the Tweedie estimation error (Eq. 42):
+            # Under a Gaussian prior, tr(∇² ln q) = -D/sigma², giving
+            #   sigma_delta_N² ≈ sigma_H_j²
+            # This ensures the likelihood gradient is damped at large sigma (early steps)
+            # and fully trusted at small sigma (late steps), preventing blowup.
+            approx_var = self.sigma_n ** 2 + sigma_H_j ** 2
+            return torch.full((B,), approx_var, device=self.device)
+
+        base_var = torch.full((B,), self.sigma_n ** 2, device=self.device)
 
         with torch.no_grad():
             trace_H = compute_trace_score_channel(H_j, sigma_H_j, self.s_theta_H)

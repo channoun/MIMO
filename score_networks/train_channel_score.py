@@ -48,8 +48,11 @@ def dsm_loss(net, H0, sigmas, device):
     # Forward
     score_pred = net(H_j_norm, sigma_j)
 
-    # ✅ NO sigma weighting
-    loss = ((score_pred - score_target) ** 2).mean()
+    # sigma^2 weighting cancels the 1/sigma^2 division inside ChannelScoreNet.forward(),
+    # making the effective gradient w.r.t. the MLP weights independent of sigma.
+    # Without this, high-sigma samples (e.g. sigma=100) contribute 1e8x less gradient
+    # than low-sigma samples, so the network never learns at high noise levels.
+    loss = (scale_4d ** 2 * (score_pred - score_target) ** 2).mean()
 
     return loss
 
