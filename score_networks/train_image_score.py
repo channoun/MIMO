@@ -59,10 +59,17 @@ def dsm_loss_image(
     j = torch.randint(1, len(sigmas), (B,), device=device)
     sigma_j = sigmas[j]  # (B,)
     eps = torch.randn_like(D0)
-    D_j = D0 + sigma_j[:, None, None, None] * eps
-    score_target = -eps / sigma_j[:, None, None, None]
-    score_pred = net(D_j, sigma_j)
-    loss = (sigma_j[:, None, None, None]**2 * (score_pred - score_target)**2).mean()
+    scale = sigma_j[:, None, None, None]
+
+    D_j = D0 + scale * eps
+
+    # Epsilon predictor: target is -eps (not -eps/sigma).
+    # sigma² weighting ensures high-sigma samples contribute meaningfully to the loss,
+    # and the raw MLP only needs to produce O(1) outputs (sigma-independent).
+    # This is the same convention used by ChannelScoreNet.
+    eps_target = -eps
+    eps_pred = net(D_j, sigma_j)
+    loss = (scale ** 2 * (eps_pred - eps_target) ** 2).mean()
     return loss
 
 
@@ -84,7 +91,13 @@ def train(cfg: dict):
     ).to(device)
 
     optimizer = optim.Adam(net.parameters(), lr=cfg.get("score_lr", 2e-4))
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
+    # CosineAnnealingLR decays smoothly to eta_min, avoiding the abrupt drops
+    # that cause loss spikes when sigma²-weighted gradients are large.
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=cfg.get("score_epochs", 200),
+        eta_min=cfg.get("score_lr_min", 1e-5),
+    )
 
     data_root = cfg.get("data_root", "data/ffhq256")
     train_ds = FFHQDataset(data_root, split="train")

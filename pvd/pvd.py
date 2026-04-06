@@ -315,7 +315,10 @@ class PVDSolver:
                             score_H_prior[:, 1] / sigma_H_j,
                         )  # actual score ∇ log p(H_j)
 
-                    score_D_prior = self.S_theta_D(D_j, sigma_D_vec)   # (B, 3, H, W)
+                    # NCSNpp is now an epsilon predictor: output ≈ -eps (not score).
+                    # Actual score = eps_pred / sigma_D_j.
+                    eps_pred_D = self.S_theta_D(D_j, sigma_D_vec)   # (B, 3, H, W) ≈ -eps
+                    score_D_prior = eps_pred_D / sigma_D_j           # actual score ∇ log p(D_j)
 
                 # Stochastic Langevin update (Eq. 36) with L=1 sample:
                 noise_H = torch.complex(
@@ -356,7 +359,10 @@ class PVDSolver:
                           f"mean={grad_H_lik.abs().mean().item():.4e}  "
                           f"max={grad_H_lik.abs().max().item():.4e}")
                     print(f"  {'lik_step_H (DPS)':22s}  {lik_step_H.item():.4e}")
-                    print(f"  {'score_D prior':22s}  "
+                    print(f"  {'eps_pred_D (raw)':22s}  "
+                          f"mean={eps_pred_D.abs().mean().item():.4e}  "
+                          f"max={eps_pred_D.abs().max().item():.4e}")
+                    print(f"  {'score_D (÷sigma)':22s}  "
                           f"mean={score_D_prior.abs().mean().item():.4e}  "
                           f"max={score_D_prior.abs().max().item():.4e}")
                     print(f"  {'grad_D_lik':22s}  "
@@ -416,8 +422,10 @@ class PVDSolver:
                     H_j.imag + sigma_H_1 * score_H[:, 1],
                 )
 
-            score_D = self.S_theta_D(D_j, sigma_D_vec)
-            D_hat_norm = D_j + sigma_D_1 ** 2 * score_D
+            # NCSNpp epsilon predictor: output ≈ -eps.
+            # Tweedie: D_hat = D_j + sigma² * score = D_j + sigma² * (eps_pred/sigma) = D_j + sigma * eps_pred
+            eps_pred_D = self.S_theta_D(D_j, sigma_D_vec)
+            D_hat_norm = D_j + sigma_D_1 * eps_pred_D
             D_hat = D_hat_norm.clamp(-1, 1)
 
         return H_hat, D_hat

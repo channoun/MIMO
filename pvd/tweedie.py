@@ -69,15 +69,20 @@ def tweedie_image(
     """
     Tweedie estimate for the image D.
 
+    NCSNpp is an epsilon predictor: output ≈ -eps.
+    Tweedie: D_hat = D_j + sigma² * score
+           = D_j + sigma² * (eps_pred / sigma)
+           = D_j + sigma * eps_pred
+
     Args:
         D_j:      (B, 3, H, W) real noisy image at step j.
         sigma_j:  Noise std at step j.
-        S_theta_D: Score network, expects (D, sigma_vec).
+        S_theta_D: Score network, expects (D, sigma_vec). Output ≈ -eps.
 
     Returns:
         D_hat_0: (B, 3, H, W) Tweedie estimate.
     """
     B = D_j.shape[0]
     sigma_vec = torch.full((B,), sigma_j, dtype=torch.float32, device=D_j.device)
-    score = S_theta_D(D_j, sigma_vec)
-    return D_j + sigma_j ** 2 * score
+    eps_pred = S_theta_D(D_j, sigma_vec)  # ≈ -eps
+    return D_j + sigma_j * eps_pred

@@ -258,10 +258,12 @@ class NCSNpp(nn.Module):
             h = up(h)
 
         h = F.silu(self.out_norm(h))
-        score = self.out_conv(h)
-        # Scale by 1/sigma^2 (score parameterization)
-        score = score / (sigma[:, None, None, None] ** 2 + 1e-8)
-        return score
+        # Epsilon predictor: output ≈ -eps (NOT divided by sigma).
+        # Training target is -eps with sigma² loss weighting.
+        # Tweedie at inference: D_hat = D_j + sigma * net_output.
+        # Actual score = net_output / sigma (computed externally when needed).
+        eps_pred = self.out_conv(h)
+        return eps_pred
 
 
 def get_sigmas(sigma_min: float, sigma_max: float, num_steps: int,
