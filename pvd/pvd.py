@@ -150,10 +150,29 @@ class PVDSolver:
         )
         return (base_var + sigma_delta_sq).clamp(min=self.sigma_n ** 2)
 
+    # ------------------------------------------------------------------
+    # Debug helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _stat(t: torch.Tensor, name: str) -> str:
+        """Return a compact stats string for a real or complex tensor."""
+        v = t.abs() if t.is_complex() else t.abs()
+        has_nan = torch.isnan(t).any().item()
+        has_inf = torch.isinf(t).any().item()
+        flag = " *** NaN ***" if has_nan else (" *** Inf ***" if has_inf else "")
+        return (f"{name:22s}  mean={v.mean().item():12.4e}  "
+                f"max={v.max().item():12.4e}{flag}")
+
+    # ------------------------------------------------------------------
+    # Main solve
+    # ------------------------------------------------------------------
+
     def solve(
         self,
         Y: torch.Tensor,
         verbose: bool = True,
+        debug: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Run PVD Algorithm 1.
@@ -161,6 +180,7 @@ class PVDSolver:
         Args:
             Y:       (B, NrK, T) complex received signal.
             verbose: Show progress bar.
+            debug:   Print per-step diagnostics to stdout.
 
         Returns:
             H_hat: (B, NrK, NtK) complex channel estimate.
@@ -169,8 +189,20 @@ class PVDSolver:
         B = Y.shape[0]
         H_j, D_j = self._init_latents(B)
 
+        if debug:
+            print("\n" + "="*70)
+            print("PVD DEBUG — pre-loop state")
+            print("="*70)
+            print(self._stat(Y,   "Y (received)"))
+            print(self._stat(H_j, "H_j (init)"))
+            print(self._stat(D_j, "D_j (init)"))
+            print(f"{'sigma_n':22s}  {self.sigma_n:.4e}")
+            print(f"{'sigmas_H range':22s}  [{self.sigmas_H[1].item():.4e}, {self.sigmas_H[-1].item():.4e}]")
+            print(f"{'sigmas_D range':22s}  [{self.sigmas_D[1].item():.4e}, {self.sigmas_D[-1].item():.4e}]")
+            print(f"{'zeta_H / zeta_D':22s}  {self.zeta_H} / {self.zeta_D}")
+
         outer_iter = range(self.J, 0, -1)
-        if verbose:
+        if verbose and not debug:
             outer_iter = tqdm(list(outer_iter), desc="PVD", unit="step")
 
         for j in outer_iter:
@@ -187,7 +219,15 @@ class PVDSolver:
             eps_H = abs(eps_H)
             eps_D = abs(eps_D)
 
-            for _ in range(self.J_in):
+            if debug:
+                print(f"\n{'─'*70}")
+                print(f"  OUTER j={j:3d}  σ_H={sigma_H_j:.4e}  σ_D={sigma_D_j:.4e}"
+                      f"  ε_H={eps_H:.4e}  ε_D={eps_D:.4e}")
+                print(f"  {'H_j (start of outer)':22s}  "
+                      f"mean={H_j.abs().mean().item():.4e}  "
+                      f"max={H_j.abs().max().item():.4e}")
+
+            for inner_i in range(self.J_in):
                 # Effective variance for likelihood
                 eff_var = self._effective_var(H_j, D_j, sigma_H_j, sigma_D_j)
 
@@ -201,7 +241,13 @@ class PVDSolver:
                     )
 
                     if torch.isnan(grad_H_lik).any() or torch.isnan(grad_D_lik).any():
-                        print(f"NaN detected in likelihood gradients at step j={j}")
+                        print(f"[j={j} inner={inner_i}] NaN in likelihood gradients")
+                        if debug:
+                            print(self._stat(eff_var,    "  eff_var"))
+                            print(self._stat(H_j,        "  H_j"))
+                            print(self._stat(D_j,        "  D_j"))
+                            print(self._stat(grad_H_lik, "  grad_H_lik (NaN)"))
+                            print(self._stat(grad_D_lik, "  grad_D_lik"))
                         break
 
                 # Prior scores (no grad needed)
@@ -221,11 +267,6 @@ class PVDSolver:
 
                     score_D_prior = self.S_theta_D(D_j, sigma_D_vec)   # (B, 3, H, W)
 
-                # Transition term: (H_{j+1} - H_j) / (sigma^2_{j+1} - sigma^2_j)
-                # Here j is the current step; in reverse diffusion:
-                # transition_H = -(H_j - H_j_prev) / delta_sigma^2_H  (from Eq. 35)
-                # We approximate transition by Langevin noise term below.
-
                 # Stochastic Langevin update (Eq. 36) with L=1 sample:
                 noise_H = torch.complex(
                     torch.randn_like(H_j.real) * math.sqrt(eps_H),
@@ -237,14 +278,52 @@ class PVDSolver:
                 total_score_H_real = score_H_complex.real + grad_H_lik.real
                 total_score_H_imag = score_H_complex.imag + grad_H_lik.imag
 
+                # Debug: print the first inner iteration of every outer step
+                if debug and inner_i == 0:
+                    prior_contrib = eps_H * score_H_complex.abs().mean().item()
+                    lik_contrib   = eps_H * grad_H_lik.abs().mean().item()
+                    noise_contrib = noise_H.abs().mean().item()
+                    print(f"  {'eff_var (mean)':22s}  {eff_var.mean().item():.4e}")
+                    print(f"  {'score_H raw (-eps)':22s}  "
+                          f"mean={score_H_prior.abs().mean().item():.4e}  "
+                          f"max={score_H_prior.abs().max().item():.4e}")
+                    print(f"  {'score_H actual':22s}  "
+                          f"mean={score_H_complex.abs().mean().item():.4e}  "
+                          f"max={score_H_complex.abs().max().item():.4e}")
+                    print(f"  {'grad_H_lik':22s}  "
+                          f"mean={grad_H_lik.abs().mean().item():.4e}  "
+                          f"max={grad_H_lik.abs().max().item():.4e}")
+                    print(f"  {'score_D prior':22s}  "
+                          f"mean={score_D_prior.abs().mean().item():.4e}  "
+                          f"max={score_D_prior.abs().max().item():.4e}")
+                    print(f"  {'grad_D_lik':22s}  "
+                          f"mean={grad_D_lik.abs().mean().item():.4e}  "
+                          f"max={grad_D_lik.abs().max().item():.4e}")
+                    print(f"  update H contributions:")
+                    print(f"    eps_H*prior  = {prior_contrib:.4e}")
+                    print(f"    eps_H*lik    = {lik_contrib:.4e}")
+                    print(f"    noise        = {noise_contrib:.4e}")
+
                 # Update variational mean (Eq. 36)
                 H_j = torch.complex(
                     H_j.real + eps_H * total_score_H_real + noise_H.real,
                     H_j.imag + eps_H * total_score_H_imag + noise_H.imag,
                 )
                 D_j = D_j + eps_D * (score_D_prior + grad_D_lik) + noise_D
-                if torch.isnan(H_j).any() or torch.isnan(D_j).any():
-                    print(f"NaN detected at the end. step j={j}")
+
+                # Check for blowup / NaN
+                h_max = H_j.abs().max().item()
+                if torch.isnan(H_j).any() or torch.isnan(D_j).any() or h_max > 1e6:
+                    print(f"[j={j} inner={inner_i}] "
+                          f"{'NaN' if torch.isnan(H_j).any() else 'BLOWUP'} "
+                          f"in H_j  max={h_max:.4e}")
+                    if debug:
+                        print(self._stat(score_H_complex, "  score_H_complex"))
+                        print(self._stat(grad_H_lik,      "  grad_H_lik"))
+                        print(self._stat(noise_H,         "  noise_H"))
+                        print(f"  eps_H*prior={prior_contrib:.4e}  "
+                              f"eps_H*lik={lik_contrib:.4e}  "
+                              f"noise={noise_contrib:.4e}")
                     break
 
         # Final Tweedie estimates
