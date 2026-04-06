@@ -327,15 +327,17 @@ class PVDSolver:
                 )
                 noise_D = torch.randn_like(D_j) * math.sqrt(eps_D)
 
-                # DPS-style normalized step size for the likelihood correction.
-                # The likelihood gradient is decoupled from eps_H (which is designed
-                # for the prior Langevin step) and instead gets a sigma-proportional
-                # step: step = zeta * sigma / ||grad||_mean, so the actual update
-                # magnitude is always zeta * sigma regardless of gradient scale.
+                # DPS-style normalized likelihood step.
+                # We do NOT scale by sigma here. Scaling by sigma would give lik_contrib
+                # proportional to sigma — largest at high sigma (unreliable regime) and
+                # smallest at low sigma (data matters most). That's backwards for SMLD.
+                # Instead, lik_contrib = zeta (constant), so the prior dominates at
+                # high sigma (where H_hat is tiny and likelihood is noise) and the
+                # likelihood dominates at low sigma (where H_hat ≈ H0 and data is clean).
                 lik_norm_H = grad_H_lik.abs().mean().clamp(min=1e-8)
                 lik_norm_D = grad_D_lik.abs().mean().clamp(min=1e-8)
-                lik_step_H = self.zeta_H * sigma_H_j / lik_norm_H
-                lik_step_D = self.zeta_D * sigma_D_j / lik_norm_D
+                lik_step_H = self.zeta_H / lik_norm_H
+                lik_step_D = self.zeta_D / lik_norm_D
 
                 # Debug: print the first inner iteration of every outer step
                 if debug and inner_i == 0:
@@ -370,7 +372,7 @@ class PVDSolver:
                           f"max={grad_D_lik.abs().max().item():.4e}")
                     print(f"  update H contributions (DPS-decoupled):")
                     print(f"    eps_H*prior  = {prior_contrib:.4e}")
-                    print(f"    lik_contrib  = {lik_contrib:.4e}  (= zeta_H * sigma_H)")
+                    print(f"    lik_contrib  = {self.zeta_H:.4e}  (= zeta_H, sigma-independent)")
                     print(f"    noise        = {noise_contrib:.4e}")
                     print(f"    H_j mean     = {H_j.abs().mean().item():.4e}")
 
