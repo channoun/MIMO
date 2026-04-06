@@ -71,7 +71,13 @@ def train(cfg: dict):
 
     net = ChannelScoreNet(Nr=Nr, Nt=Nt, K=K).to(device)
     optimizer = optim.Adam(net.parameters(), lr=cfg.get("score_lr", 2e-4))
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    # Cosine annealing decays LR smoothly to eta_min, avoiding the abrupt drops
+    # from StepLR that cause loss to spike when sigma^2-weighted gradients are large.
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=cfg.get("score_epochs", 200),
+        eta_min=cfg.get("score_lr_min", 1e-5),
+    )
 
     ckpt_dir = cfg.get("score_ckpt_dir", "score_networks/checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
