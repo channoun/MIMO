@@ -88,13 +88,13 @@ def likelihood_score(
     sigma_H_vec = torch.full((B,), sigma_H_j, dtype=torch.float32, device=H_j.device)
     sigma_D_vec = torch.full((B,), sigma_D_j, dtype=torch.float32, device=D_j.device)
 
-    H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1)
-    score_H = S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK)
-    score_H = torch.clamp(score_H, -10.0, 10.0)  # Clip scores to prevent extreme values
+    # Channel network expects normalized input H_j / sigma_H_j (matches training convention)
+    H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1) / sigma_H_j
+    score_H = S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK) — predicts -epsilon
+    # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)  [since actual score = net_out / sigma]
     H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0]
     H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1]
     H_hat = torch.complex(H_hat_real, H_hat_imag)  # (B, NrK, NtK)
-    H_hat = H_hat / (H_hat.norm(dim=-1, keepdim=True) + 1e-8)
 
     score_D = S_theta_D(D_j_c, sigma_D_vec)  # (B, 3, H, W)
     D_hat = D_j_c + sigma_D_j * score_D  # (B, 3, H, W)
@@ -177,11 +177,10 @@ def likelihood_score_simple(
     sigma_H_vec = torch.full((B,), sigma_H_j, dtype=torch.float32, device=H_j.device)
     sigma_D_vec = torch.full((B,), sigma_D_j, dtype=torch.float32, device=D_j.device)
 
-    H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1)
+    # Channel network expects normalized input (matches training convention)
+    H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1) / sigma_H_j
     with torch.no_grad():
         score_H = S_theta_H(H_in, sigma_H_vec)
-        score_H = torch.clamp(score_H, -10.0, 10.0)  # Clip scores to prevent extreme values
-        # print("score h: ", score_H)
     H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0].detach()
     H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1].detach()
     H_hat_grad = torch.complex(H_hat_real, H_hat_imag)

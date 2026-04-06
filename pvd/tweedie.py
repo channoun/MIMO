@@ -51,12 +51,13 @@ def tweedie_channel(
         H_hat_0: (B, NrK, NtK) complex tensor.
     """
     B = H_j.shape[0]
-    H_j_real = torch.stack([H_j.real, H_j.imag], dim=1)  # (B, 2, NrK, NtK)
+    # Channel network trained on H_j/sigma_j; predicts -epsilon (not the score).
+    # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)
+    H_j_real = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_j  # normalize input
     sigma_vec = torch.full((B,), sigma_j, dtype=torch.float32, device=H_j.device)
-    score = S_theta_H(H_j_real, sigma_vec)  # (B, 2, NrK, NtK)
-    # score = (H_hat_real - H_j_real) / sigma_j^2
-    H_hat_real = H_j.real + sigma_j ** 2 * score[:, 0]
-    H_hat_imag = H_j.imag + sigma_j ** 2 * score[:, 1]
+    eps_pred = S_theta_H(H_j_real, sigma_vec)  # (B, 2, NrK, NtK) ≈ -epsilon
+    H_hat_real = H_j.real + sigma_j * eps_pred[:, 0]
+    H_hat_imag = H_j.imag + sigma_j * eps_pred[:, 1]
     return torch.complex(H_hat_real, H_hat_imag)
 
 

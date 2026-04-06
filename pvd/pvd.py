@@ -210,9 +210,14 @@ class PVDSolver:
                     sigma_H_vec = torch.full((B_size,), sigma_H_j, device=self.device)
                     sigma_D_vec = torch.full((B_size,), sigma_D_j, device=self.device)
 
-                    H_in = torch.stack([H_j.real, H_j.imag], dim=1)
-                    score_H_prior = self.S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK)
-                    score_H_complex = torch.complex(score_H_prior[:, 0], score_H_prior[:, 1])
+                    # Channel network trained on H_j/sigma_j; predicts -epsilon (not score).
+                    # Actual score = net_output / sigma_H_j.
+                    H_in = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_H_j
+                    score_H_prior = self.S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK) ≈ -eps
+                    score_H_complex = torch.complex(
+                        score_H_prior[:, 0] / sigma_H_j,
+                        score_H_prior[:, 1] / sigma_H_j,
+                    )  # actual score ∇ log p(H_j)
 
                     score_D_prior = self.S_theta_D(D_j, sigma_D_vec)   # (B, 3, H, W)
 
@@ -247,11 +252,13 @@ class PVDSolver:
             sigma_H_vec = torch.full((B,), self.sigmas_H[1].item(), device=self.device)
             sigma_D_vec = torch.full((B,), self.sigmas_D[1].item(), device=self.device)
 
-            H_in = torch.stack([H_j.real, H_j.imag], dim=1)
+            sigma_H_1 = self.sigmas_H[1].item()
+            H_in = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_H_1
             score_H = self.S_theta_H(H_in, sigma_H_vec)
+            # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)
             H_hat = torch.complex(
-                H_j.real + self.sigmas_H[1].item() ** 2 * score_H[:, 0],
-                H_j.imag + self.sigmas_H[1].item() ** 2 * score_H[:, 1],
+                H_j.real + sigma_H_1 * score_H[:, 0],
+                H_j.imag + sigma_H_1 * score_H[:, 1],
             )
 
             score_D = self.S_theta_D(D_j, sigma_D_vec)
