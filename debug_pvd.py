@@ -34,8 +34,10 @@ def main():
     parser.add_argument("--snr",     type=float, default=10.0)
     parser.add_argument("--J",       type=int,   default=None)
     parser.add_argument("--J_in",    type=int,   default=None)
-    parser.add_argument("--no-second-order", action="store_true")
-    parser.add_argument("--no-checkpoint",   action="store_true")
+    parser.add_argument("--no-second-order",         action="store_true")
+    parser.add_argument("--no-checkpoint",           action="store_true")
+    parser.add_argument("--analytical-channel-prior", action="store_true",
+                        help="Use exact Rayleigh score instead of trained channel score net")
     parser.add_argument("--device",  type=str,
                         default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
@@ -140,21 +142,28 @@ def main():
     # ------------------------------------------------------------------ #
     # Build PVD solver
     # ------------------------------------------------------------------ #
+    use_analytical = args.analytical_channel_prior
+    if use_analytical:
+        print("Channel prior: ANALYTICAL (exact Rayleigh score, bypasses trained net)")
+    else:
+        print("Channel prior: TRAINED score network")
+
     pvd = PVDSolver(
-        f_gamma          = enc,
-        S_theta_H        = S_theta_H,
-        S_theta_D        = S_theta_D,
-        s_theta_H        = s_theta_H,
-        s_theta_D        = s_theta_D,
-        sigma_n          = sigma_n_actual,
+        f_gamma                    = enc,
+        S_theta_H                  = S_theta_H,
+        S_theta_D                  = S_theta_D,
+        s_theta_H                  = s_theta_H,
+        s_theta_D                  = s_theta_D,
+        sigma_n                    = sigma_n_actual,
         Nr=Nr, Nt=Nt, K=K, T=T, Nu=Nu,
-        J                = J,
-        J_in             = J_in,
-        zeta_H           = cfg.get("zeta_H", 1.0),
-        zeta_D           = cfg.get("zeta_D", 1.0),
-        device           = device,
-        use_second_order = use_second_order,
-        use_checkpoint   = not args.no_checkpoint,
+        J                          = J,
+        J_in                       = J_in,
+        zeta_H                     = cfg.get("zeta_H", 1.0),
+        zeta_D                     = cfg.get("zeta_D", 1.0),
+        device                     = device,
+        use_second_order           = use_second_order,
+        use_checkpoint             = not args.no_checkpoint,
+        use_analytical_channel_prior = use_analytical,
     )
 
     # ------------------------------------------------------------------ #

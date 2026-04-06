@@ -72,6 +72,7 @@ class PVDSolver:
         device: torch.device = torch.device("cpu"),
         use_second_order: bool = True,
         use_checkpoint: bool = True,
+        use_analytical_channel_prior: bool = False,
     ):
         self.f_gamma = f_gamma.eval()
         self.S_theta_H = S_theta_H.eval()
@@ -86,6 +87,7 @@ class PVDSolver:
         self.device = device
         self.use_second_order = use_second_order
         self.use_checkpoint = use_checkpoint
+        self.use_analytical_channel_prior = use_analytical_channel_prior
 
         # Noise schedules: shape (J+1,), sigmas[0]=0, sigmas[j]=sigma_j
         self.sigmas_H = noise_schedule_exponential(sigma_H_1, sigma_H_J, J, device)
@@ -156,6 +158,40 @@ class PVDSolver:
             C=3, H_size=256, W_size=256,
         )
         return (base_var + sigma_delta_sq).clamp(min=self.sigma_n ** 2)
+
+    # ------------------------------------------------------------------
+    # Analytical channel prior (i.i.d. Rayleigh)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _analytical_channel_score(
+        H_j: torch.Tensor,
+        sigma_j: float,
+    ) -> torch.Tensor:
+        """
+        Exact score of the marginal q(H_j) under an i.i.d. CN(0, I) Rayleigh prior.
+
+        For H_j = H_0 + sigma_j * eps,  H_0 ~ CN(0, I):
+            q(H_j) = CN(0, (1 + sigma_j^2) I)
+            score   = ∇_{H_j} log q(H_j) = -H_j / (1 + sigma_j^2)
+
+        Returns complex tensor, same shape as H_j.
+        """
+        return -H_j / (1.0 + sigma_j ** 2)
+
+    @staticmethod
+    def _analytical_channel_tweedie(
+        H_j: torch.Tensor,
+        sigma_j: float,
+    ) -> torch.Tensor:
+        """
+        Wiener-filter MMSE estimate of H_0 given H_j under CN(0, I) prior.
+
+            H_hat = E[H_0 | H_j] = H_j / (1 + sigma_j^2)
+
+        Equivalent to Tweedie formula: H_j + sigma_j^2 * score(H_j).
+        """
+        return H_j / (1.0 + sigma_j ** 2)
 
     # ------------------------------------------------------------------
     # Debug helpers
@@ -245,6 +281,7 @@ class PVDSolver:
                         self.f_gamma, self.S_theta_H, self.S_theta_D,
                         sigma_H_j, sigma_D_j, eff_var,
                         use_checkpoint=self.use_checkpoint,
+                        use_analytical_channel_prior=self.use_analytical_channel_prior,
                     )
 
                     if torch.isnan(grad_H_lik).any() or torch.isnan(grad_D_lik).any():
@@ -263,14 +300,20 @@ class PVDSolver:
                     sigma_H_vec = torch.full((B_size,), sigma_H_j, device=self.device)
                     sigma_D_vec = torch.full((B_size,), sigma_D_j, device=self.device)
 
-                    # Channel network trained on H_j/sigma_j; predicts -epsilon (not score).
-                    # Actual score = net_output / sigma_H_j.
-                    H_in = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_H_j
-                    score_H_prior = self.S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK) ≈ -eps
-                    score_H_complex = torch.complex(
-                        score_H_prior[:, 0] / sigma_H_j,
-                        score_H_prior[:, 1] / sigma_H_j,
-                    )  # actual score ∇ log p(H_j)
+                    if self.use_analytical_channel_prior:
+                        # Exact score for i.i.d. CN(0,I) Rayleigh prior:
+                        #   ∇_{H_j} log q(H_j) = -H_j / (1 + sigma_j^2)
+                        score_H_complex = self._analytical_channel_score(H_j, sigma_H_j)
+                        score_H_prior = None  # not used (analytical path)
+                    else:
+                        # Channel network trained on H_j/sigma_j; predicts -epsilon (not score).
+                        # Actual score = net_output / sigma_H_j.
+                        H_in = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_H_j
+                        score_H_prior = self.S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK) ≈ -eps
+                        score_H_complex = torch.complex(
+                            score_H_prior[:, 0] / sigma_H_j,
+                            score_H_prior[:, 1] / sigma_H_j,
+                        )  # actual score ∇ log p(H_j)
 
                     score_D_prior = self.S_theta_D(D_j, sigma_D_vec)   # (B, 3, H, W)
 
@@ -298,12 +341,17 @@ class PVDSolver:
                     lik_contrib   = self.zeta_H * sigma_H_j
                     noise_contrib = noise_H.abs().mean().item()
                     print(f"  {'eff_var (mean)':22s}  {eff_var.mean().item():.4e}")
-                    print(f"  {'score_H raw (-eps)':22s}  "
-                          f"mean={score_H_prior.abs().mean().item():.4e}  "
-                          f"max={score_H_prior.abs().max().item():.4e}")
-                    print(f"  {'score_H actual':22s}  "
-                          f"mean={score_H_complex.abs().mean().item():.4e}  "
-                          f"max={score_H_complex.abs().max().item():.4e}")
+                    if self.use_analytical_channel_prior:
+                        print(f"  {'score_H (analytical)':22s}  "
+                              f"mean={score_H_complex.abs().mean().item():.4e}  "
+                              f"max={score_H_complex.abs().max().item():.4e}")
+                    else:
+                        print(f"  {'score_H raw (-eps)':22s}  "
+                              f"mean={score_H_prior.abs().mean().item():.4e}  "
+                              f"max={score_H_prior.abs().max().item():.4e}")
+                        print(f"  {'score_H actual':22s}  "
+                              f"mean={score_H_complex.abs().mean().item():.4e}  "
+                              f"max={score_H_complex.abs().max().item():.4e}")
                     print(f"  {'grad_H_lik':22s}  "
                           f"mean={grad_H_lik.abs().mean().item():.4e}  "
                           f"max={grad_H_lik.abs().max().item():.4e}")
@@ -351,20 +399,25 @@ class PVDSolver:
 
         # Final Tweedie estimates
         with torch.no_grad():
-            sigma_H_vec = torch.full((B,), self.sigmas_H[1].item(), device=self.device)
-            sigma_D_vec = torch.full((B,), self.sigmas_D[1].item(), device=self.device)
-
             sigma_H_1 = self.sigmas_H[1].item()
-            H_in = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_H_1
-            score_H = self.S_theta_H(H_in, sigma_H_vec)
-            # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)
-            H_hat = torch.complex(
-                H_j.real + sigma_H_1 * score_H[:, 0],
-                H_j.imag + sigma_H_1 * score_H[:, 1],
-            )
+            sigma_D_1 = self.sigmas_D[1].item()
+            sigma_D_vec = torch.full((B,), sigma_D_1, device=self.device)
+
+            if self.use_analytical_channel_prior:
+                # Wiener MMSE: H_hat = H_j / (1 + sigma_H_1^2)
+                H_hat = self._analytical_channel_tweedie(H_j, sigma_H_1)
+            else:
+                sigma_H_vec = torch.full((B,), sigma_H_1, device=self.device)
+                H_in = torch.stack([H_j.real, H_j.imag], dim=1) / sigma_H_1
+                score_H = self.S_theta_H(H_in, sigma_H_vec)
+                # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)
+                H_hat = torch.complex(
+                    H_j.real + sigma_H_1 * score_H[:, 0],
+                    H_j.imag + sigma_H_1 * score_H[:, 1],
+                )
 
             score_D = self.S_theta_D(D_j, sigma_D_vec)
-            D_hat_norm = D_j + self.sigmas_D[1].item() ** 2 * score_D
+            D_hat_norm = D_j + sigma_D_1 ** 2 * score_D
             D_hat = D_hat_norm.clamp(-1, 1)
 
         return H_hat, D_hat

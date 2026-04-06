@@ -161,7 +161,8 @@ def evaluate_pvd(
 # Main evaluation loop
 # ---------------------------------------------------------------------------
 
-def evaluate_at_snr(cfg: dict, snr_db: float, args, device: torch.device) -> Dict[str, List]:
+def evaluate_at_snr(cfg: dict, snr_db: float, args, device: torch.device,
+                    use_analytical_channel_prior: bool = False) -> Dict[str, List]:
     Nr, Nt, K, T, Nu = cfg["Nr"], cfg["Nt"], cfg["K"], cfg["T"], cfg.get("Nu", 1)
     n_trials = cfg.get("n_trials", 300)
     batch_size = args.batch_size
@@ -183,6 +184,7 @@ def evaluate_at_snr(cfg: dict, snr_db: float, args, device: torch.device) -> Dic
         zeta_H=cfg.get("zeta_H", 1.0), zeta_D=cfg.get("zeta_D", 1.0),
         device=device,
         use_second_order=cfg.get("use_second_order", True),
+        use_analytical_channel_prior=use_analytical_channel_prior,
     )
 
     # Baselines
@@ -301,6 +303,8 @@ def main():
     parser.add_argument("--snr", type=float, default=10.0)
     parser.add_argument("--all-snr", action="store_true")
     parser.add_argument("--stable", action="store_true")
+    parser.add_argument("--analytical-channel-prior", action="store_true",
+                        help="Use exact Rayleigh score (bypasses trained channel score net)")
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--output", type=str, default="results.json")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
@@ -323,7 +327,8 @@ def main():
         print(f"\n{'='*50}")
         print(f"Evaluating at SNR = {snr_db} dB")
         print(f"{'='*50}")
-        results = evaluate_at_snr(cfg, snr_db, args, device)
+        results = evaluate_at_snr(cfg, snr_db, args, device,
+                                  use_analytical_channel_prior=args.analytical_channel_prior)
         summary = summarize(results)
         all_results[str(snr_db)] = summary
 

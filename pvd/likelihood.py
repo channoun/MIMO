@@ -55,6 +55,7 @@ def likelihood_score(
     sigma_D_j: float,
     effective_var: torch.Tensor,
     use_checkpoint: bool = True,
+    use_analytical_channel_prior: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Compute likelihood scores ∇_{H_j} ln q(Y|Ψ_j) and ∇_{D_j} ln q(Y|Ψ_j).
@@ -88,13 +89,19 @@ def likelihood_score(
     sigma_H_vec = torch.full((B,), sigma_H_j, dtype=torch.float32, device=H_j.device)
     sigma_D_vec = torch.full((B,), sigma_D_j, dtype=torch.float32, device=D_j.device)
 
-    # Channel network expects normalized input H_j / sigma_H_j (matches training convention)
-    H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1) / sigma_H_j
-    score_H = S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK) — predicts -epsilon
-    # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)  [since actual score = net_out / sigma]
-    H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0]
-    H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1]
-    H_hat = torch.complex(H_hat_real, H_hat_imag)  # (B, NrK, NtK)
+    if use_analytical_channel_prior:
+        # Wiener MMSE under i.i.d. CN(0,I) prior: H_hat = H_j / (1 + sigma_H_j^2)
+        # Equivalent to Tweedie with score = -H_j/(1+sigma^2).
+        # Autograd flows through this division, so grad_H is still computed correctly.
+        H_hat = H_j_c / (1.0 + sigma_H_j ** 2)
+    else:
+        # Channel network expects normalized input H_j / sigma_H_j (matches training convention)
+        H_in = torch.stack([H_j_c.real, H_j_c.imag], dim=1) / sigma_H_j
+        score_H = S_theta_H(H_in, sigma_H_vec)  # (B, 2, NrK, NtK) — predicts -epsilon
+        # Tweedie: H_hat = H_j + sigma * net(H_j/sigma)  [since actual score = net_out / sigma]
+        H_hat_real = H_j_c.real + sigma_H_j * score_H[:, 0]
+        H_hat_imag = H_j_c.imag + sigma_H_j * score_H[:, 1]
+        H_hat = torch.complex(H_hat_real, H_hat_imag)  # (B, NrK, NtK)
 
     # NCSNpp outputs the actual score ≈ -eps/sigma.
     # Tweedie: D_hat = D_j + sigma² * score = D_j + sigma² * (-eps/sigma) = D_j - sigma*eps = D0
