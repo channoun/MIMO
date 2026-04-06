@@ -281,14 +281,21 @@ class PVDSolver:
                 )
                 noise_D = torch.randn_like(D_j) * math.sqrt(eps_D)
 
-                # Full score for H: prior + likelihood
-                total_score_H_real = score_H_complex.real + grad_H_lik.real
-                total_score_H_imag = score_H_complex.imag + grad_H_lik.imag
+                # DPS-style normalized step size for the likelihood correction.
+                # The likelihood gradient is decoupled from eps_H (which is designed
+                # for the prior Langevin step) and instead gets a sigma-proportional
+                # step: step = zeta * sigma / ||grad||_mean, so the actual update
+                # magnitude is always zeta * sigma regardless of gradient scale.
+                lik_norm_H = grad_H_lik.abs().mean().clamp(min=1e-8)
+                lik_norm_D = grad_D_lik.abs().mean().clamp(min=1e-8)
+                lik_step_H = self.zeta_H * sigma_H_j / lik_norm_H
+                lik_step_D = self.zeta_D * sigma_D_j / lik_norm_D
 
                 # Debug: print the first inner iteration of every outer step
                 if debug and inner_i == 0:
                     prior_contrib = eps_H * score_H_complex.abs().mean().item()
-                    lik_contrib   = eps_H * grad_H_lik.abs().mean().item()
+                    # lik contribution = lik_step * ||grad|| = zeta * sigma (constant)
+                    lik_contrib   = self.zeta_H * sigma_H_j
                     noise_contrib = noise_H.abs().mean().item()
                     print(f"  {'eff_var (mean)':22s}  {eff_var.mean().item():.4e}")
                     print(f"  {'score_H raw (-eps)':22s}  "
@@ -300,23 +307,32 @@ class PVDSolver:
                     print(f"  {'grad_H_lik':22s}  "
                           f"mean={grad_H_lik.abs().mean().item():.4e}  "
                           f"max={grad_H_lik.abs().max().item():.4e}")
+                    print(f"  {'lik_step_H (DPS)':22s}  {lik_step_H.item():.4e}")
                     print(f"  {'score_D prior':22s}  "
                           f"mean={score_D_prior.abs().mean().item():.4e}  "
                           f"max={score_D_prior.abs().max().item():.4e}")
                     print(f"  {'grad_D_lik':22s}  "
                           f"mean={grad_D_lik.abs().mean().item():.4e}  "
                           f"max={grad_D_lik.abs().max().item():.4e}")
-                    print(f"  update H contributions:")
+                    print(f"  update H contributions (DPS-decoupled):")
                     print(f"    eps_H*prior  = {prior_contrib:.4e}")
-                    print(f"    eps_H*lik    = {lik_contrib:.4e}")
+                    print(f"    lik_contrib  = {lik_contrib:.4e}  (= zeta_H * sigma_H)")
                     print(f"    noise        = {noise_contrib:.4e}")
+                    print(f"    H_j mean     = {H_j.abs().mean().item():.4e}")
 
-                # Update variational mean (Eq. 36)
+                # Step 1: Langevin prior step (Eq. 36) — scaled by eps_H
                 H_j = torch.complex(
-                    H_j.real + eps_H * total_score_H_real + noise_H.real,
-                    H_j.imag + eps_H * total_score_H_imag + noise_H.imag,
+                    H_j.real + eps_H * score_H_complex.real + noise_H.real,
+                    H_j.imag + eps_H * score_H_complex.imag + noise_H.imag,
                 )
-                D_j = D_j + eps_D * (score_D_prior + grad_D_lik) + noise_D
+                D_j = D_j + eps_D * score_D_prior + noise_D
+
+                # Step 2: DPS-style likelihood correction — normalized, sigma-proportional
+                H_j = torch.complex(
+                    H_j.real + lik_step_H * grad_H_lik.real,
+                    H_j.imag + lik_step_H * grad_H_lik.imag,
+                )
+                D_j = D_j + lik_step_D * grad_D_lik
 
                 # Check for blowup / NaN
                 h_max = H_j.abs().max().item()
@@ -329,7 +345,7 @@ class PVDSolver:
                         print(self._stat(grad_H_lik,      "  grad_H_lik"))
                         print(self._stat(noise_H,         "  noise_H"))
                         print(f"  eps_H*prior={prior_contrib:.4e}  "
-                              f"eps_H*lik={lik_contrib:.4e}  "
+                              f"lik_contrib={lik_contrib:.4e}  "
                               f"noise={noise_contrib:.4e}")
                     break
 
